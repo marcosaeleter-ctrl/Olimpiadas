@@ -10,6 +10,91 @@ import { FASE_LABELS, FORMATO_LABELS } from '../../utils/partidas'
 
 const FASES_ORDEM = ['grupos', 'quartas', 'semifinal', 'terceiro_lugar', 'final']
 
+function calcularTabelaGrupos(partidas, times) {
+  const stats = {}
+  times.forEach(t => {
+    stats[t.id] = { vitorias: 0, derrotas: 0, empates: 0, pf: 0, pc: 0 }
+  })
+
+  partidas.filter(p => p.fase === 'grupos' && p.status === 'concluida').forEach(p => {
+    const a = p.placar.a, b = p.placar.b
+    if (a === null || b === null) return
+    stats[p.participanteA.timeId].pf += a
+    stats[p.participanteA.timeId].pc += b
+    stats[p.participanteB.timeId].pf += b
+    stats[p.participanteB.timeId].pc += a
+    if (a > b) {
+      stats[p.participanteA.timeId].vitorias++
+      stats[p.participanteB.timeId].derrotas++
+    } else if (b > a) {
+      stats[p.participanteB.timeId].vitorias++
+      stats[p.participanteA.timeId].derrotas++
+    } else {
+      stats[p.participanteA.timeId].empates++
+      stats[p.participanteB.timeId].empates++
+    }
+  })
+
+  return [...times]
+    .map(t => ({ time: t, ...stats[t.id], saldo: stats[t.id].pf - stats[t.id].pc }))
+    .sort((a, b) => b.vitorias !== a.vitorias ? b.vitorias - a.vitorias : b.saldo - a.saldo)
+}
+
+function TabelaClassificacao({ partidas, times }) {
+  const tabela = calcularTabelaGrupos(partidas, times)
+  const temPlacar = partidas.filter(p => p.fase === 'grupos' && p.status === 'concluida').some(p => p.placar.a !== null)
+
+  return (
+    <div className="bg-white/3 border border-white/10 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-white/10">
+        <p className="text-sm font-semibold text-white">Classificação</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-gray-500 border-b border-white/5">
+              <th className="text-left px-4 py-2 font-medium">#</th>
+              <th className="text-left px-2 py-2 font-medium">Time</th>
+              <th className="px-2 py-2 font-medium text-center">V</th>
+              <th className="px-2 py-2 font-medium text-center">D</th>
+              {temPlacar && <>
+                <th className="px-2 py-2 font-medium text-center">PF</th>
+                <th className="px-2 py-2 font-medium text-center">PC</th>
+                <th className="px-2 py-2 font-medium text-center">SD</th>
+              </>}
+            </tr>
+          </thead>
+          <tbody>
+            {tabela.map((row, idx) => (
+              <tr key={row.time.id} className={`border-b border-white/5 last:border-0 ${idx === 0 ? 'bg-white/5' : ''}`}>
+                <td className="px-4 py-2.5 text-gray-400 font-medium">{idx + 1}º</td>
+                <td className="px-2 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: row.time.cor }} />
+                    <span className="text-white font-medium truncate">{row.time.nome}</span>
+                  </div>
+                </td>
+                <td className="px-2 py-2.5 text-center text-green-400 font-bold">{row.vitorias}</td>
+                <td className="px-2 py-2.5 text-center text-red-400">{row.derrotas}</td>
+                {temPlacar && <>
+                  <td className="px-2 py-2.5 text-center text-gray-300">{row.pf}</td>
+                  <td className="px-2 py-2.5 text-center text-gray-300">{row.pc}</td>
+                  <td className={`px-2 py-2.5 text-center font-medium ${row.saldo > 0 ? 'text-green-400' : row.saldo < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {row.saldo > 0 ? `+${row.saldo}` : row.saldo}
+                  </td>
+                </>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-4 py-2 border-t border-white/5">
+        <p className="text-xs text-gray-600">V=Vitórias · D=Derrotas{temPlacar ? ' · PF=Pts Feitos · PC=Pts Contra · SD=Saldo' : ''} · Desempate: saldo de pontos</p>
+      </div>
+    </div>
+  )
+}
+
 // ── Mini-modal de registro de placar ──────────────────────────────────────────
 function PlacarModal({ partida, modalidade, onClose, onConfirm }) {
   const { state } = useStore()
@@ -267,6 +352,11 @@ export default function ModalidadeDetalhe({ modalidadeId, onClose }) {
               })}
             </div>
           </div>
+
+          {/* Tabela de classificação (apenas round robin) */}
+          {modalidade.formato === 'grupos_com_final' && partidas.some(p => p.fase === 'grupos') && (
+            <TabelaClassificacao partidas={partidas} times={state.times} />
+          )}
 
           {/* Partidas por fase */}
           {fasesPresentes.length > 0 && (
