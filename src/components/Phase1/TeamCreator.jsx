@@ -2,19 +2,58 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Shield, Plus, Trash2, Shuffle, GripVertical } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
+import {
+  DndContext, DragOverlay, PointerSensor, TouchSensor,
+  useSensor, useSensors, useDroppable, useDraggable
+} from '@dnd-kit/core'
 import { useStore } from '../../store/useStore'
 import { useToast } from '../common/Toast'
 
 const DEFAULT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B']
 
+function DraggableParticipant({ id, nome, timeId }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `part-${id}`,
+    data: { participanteId: id, deTimeId: timeId },
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1 cursor-grab active:cursor-grabbing touch-none select-none ${isDragging ? 'opacity-30' : ''}`}
+    >
+      <GripVertical className="w-3.5 h-3.5 text-gray-500" />
+      <span className="text-xs text-white">{nome}</span>
+    </div>
+  )
+}
+
+function DroppableZone({ id, children, highlight, className }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      className={`transition-colors ${isOver ? highlight : ''} ${className}`}
+    >
+      {children}
+    </div>
+  )
+}
+
 export default function TeamCreator() {
   const { state, dispatch } = useStore()
   const toast = useToast()
-  const [dragging, setDragging] = useState(null)
-  const [dragOver, setDragOver] = useState(null)
+  const [activeData, setActiveData] = useState(null)
 
   const times = state.times
   const participantes = state.participantes
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  )
 
   const addTime = () => {
     if (times.length >= 4) { toast('Máximo de 4 times', 'warning'); return }
@@ -36,24 +75,24 @@ export default function TeamCreator() {
     toast('Times sorteados!', 'success')
   }
 
-  // Drag-and-drop para mover participante entre times
-  const handleDragStart = (e, participanteId, timeId) => {
-    setDragging({ participanteId, timeId })
-    e.dataTransfer.effectAllowed = 'move'
-  }
-
-  const handleDrop = (e, paraTimeId) => {
-    e.preventDefault()
-    if (!dragging || dragging.timeId === paraTimeId) return
-    dispatch({ type: 'MOVER_PARTICIPANTE', payload: { participanteId: dragging.participanteId, deTimeId: dragging.timeId, paraTimeId } })
-    setDragging(null)
-    setDragOver(null)
-  }
-
   const nomeParticipante = (id) => participantes.find(p => p.id === id)?.nome || '?'
 
   const idsNosTimeS = new Set(times.flatMap(t => t.participantes))
   const semTime = participantes.filter(p => !idsNosTimeS.has(p.id))
+
+  const handleDragStart = (event) => {
+    setActiveData(event.active.data.current)
+  }
+
+  const handleDragEnd = (event) => {
+    setActiveData(null)
+    const { over, active } = event
+    if (!over) return
+    const { participanteId, deTimeId } = active.data.current
+    const paraTimeId = over.id === '__pool__' ? null : over.id
+    if (deTimeId === paraTimeId) return
+    dispatch({ type: 'MOVER_PARTICIPANTE', payload: { participanteId, deTimeId, paraTimeId } })
+  }
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white/5 border border-white/10 rounded-2xl p-6">
@@ -77,97 +116,97 @@ export default function TeamCreator() {
         </div>
       </div>
 
-      {/* Participantes sem time */}
-      {participantes.length > 0 && times.length > 0 && (
-        <div
-          className={`mb-4 rounded-xl border-2 border-dashed p-3 transition-colors ${dragOver === '__pool__' ? 'border-purple-400 bg-purple-500/10' : 'border-white/10'}`}
-          onDragOver={e => { e.preventDefault(); setDragOver('__pool__') }}
-          onDragLeave={() => setDragOver(null)}
-          onDrop={e => handleDrop(e, null)}
-        >
-          <p className="text-xs text-gray-400 font-medium mb-2">Sem time ({semTime.length})</p>
-          {semTime.length === 0 ? (
-            <p className="text-xs text-gray-600 italic">Todos os participantes estão em um time</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {semTime.map(p => (
-                <div
-                  key={p.id}
-                  draggable
-                  onDragStart={e => handleDragStart(e, p.id, null)}
-                  className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1 cursor-grab active:cursor-grabbing"
-                >
-                  <GripVertical className="w-3.5 h-3.5 text-gray-500" />
-                  <span className="text-xs text-white">{p.nome}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
 
-      {times.length === 0 && (
-        <p className="text-sm text-gray-500 italic text-center py-4">Nenhum time criado. Clique em "+ Time" para adicionar.</p>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <AnimatePresence>
-          {times.map(time => (
-            <motion.div
-              key={time.id}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              onDragOver={e => { e.preventDefault(); setDragOver(time.id) }}
-              onDragLeave={() => setDragOver(null)}
-              onDrop={e => handleDrop(e, time.id)}
-              style={{ borderColor: dragOver === time.id ? time.cor : 'transparent', background: `${time.cor}15` }}
-              className="rounded-xl p-4 border-2 transition-colors"
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <div className="flex items-center gap-2 flex-1">
-                  <input
-                    type="color"
-                    value={time.cor}
-                    onChange={e => dispatch({ type: 'UPDATE_TIME', payload: { id: time.id, cor: e.target.value } })}
-                    className="w-8 h-8 rounded-lg cursor-pointer border-0 bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    value={time.nome}
-                    onChange={e => dispatch({ type: 'UPDATE_TIME', payload: { id: time.id, nome: e.target.value } })}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:border-white/30"
-                  />
-                </div>
-                <button onClick={() => removeTime(time.id)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="space-y-1 min-h-[2rem]">
-                {time.participantes.length === 0 && (
-                  <p className="text-xs text-gray-500 italic">Arraste participantes aqui</p>
-                )}
-                {time.participantes.map(pid => (
-                  <div
-                    key={pid}
-                    draggable
-                    onDragStart={e => handleDragStart(e, pid, time.id)}
-                    className="flex items-center gap-2 bg-white/10 rounded-lg px-2 py-1 cursor-grab active:cursor-grabbing group"
-                  >
-                    <GripVertical className="w-3.5 h-3.5 text-gray-500" />
-                    <span className="text-xs text-white">{nomeParticipante(pid)}</span>
-                  </div>
+        {/* Participantes sem time */}
+        {participantes.length > 0 && times.length > 0 && (
+          <DroppableZone
+            id="__pool__"
+            highlight="bg-purple-500/10"
+            className="mb-4 rounded-xl border-2 border-dashed border-white/10 p-3"
+          >
+            <p className="text-xs text-gray-400 font-medium mb-2">Sem time ({semTime.length})</p>
+            {semTime.length === 0 ? (
+              <p className="text-xs text-gray-600 italic">Todos os participantes estão em um time</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {semTime.map(p => (
+                  <DraggableParticipant key={p.id} id={p.id} nome={p.nome} timeId={null} />
                 ))}
               </div>
+            )}
+          </DroppableZone>
+        )}
 
-              <div className="mt-2 text-xs text-gray-500">
-                {time.participantes.length} participante{time.participantes.length !== 1 ? 's' : ''}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+        {times.length === 0 && (
+          <p className="text-sm text-gray-500 italic text-center py-4">Nenhum time criado. Clique em "+ Time" para adicionar.</p>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <AnimatePresence>
+            {times.map(time => (
+              <motion.div
+                key={time.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+              >
+                <DroppableZone
+                  id={time.id}
+                  highlight="border-opacity-100"
+                  className="rounded-xl p-4 border-2 h-full"
+                  style={{ background: `${time.cor}15` }}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="color"
+                        value={time.cor}
+                        onChange={e => dispatch({ type: 'UPDATE_TIME', payload: { id: time.id, cor: e.target.value } })}
+                        className="w-8 h-8 rounded-lg cursor-pointer border-0 bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={time.nome}
+                        onChange={e => dispatch({ type: 'UPDATE_TIME', payload: { id: time.id, nome: e.target.value } })}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:border-white/30"
+                      />
+                    </div>
+                    <button onClick={() => removeTime(time.id)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-1 min-h-[2rem]">
+                    {time.participantes.length === 0 && (
+                      <p className="text-xs text-gray-500 italic">Arraste participantes aqui</p>
+                    )}
+                    {time.participantes.map(pid => (
+                      <DraggableParticipant key={pid} id={pid} nome={nomeParticipante(pid)} timeId={time.id} />
+                    ))}
+                  </div>
+
+                  <div className="mt-2 text-xs text-gray-500">
+                    {time.participantes.length} participante{time.participantes.length !== 1 ? 's' : ''}
+                  </div>
+                </DroppableZone>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        <DragOverlay>
+          {activeData ? (
+            <div className="flex items-center gap-1.5 bg-white/20 rounded-lg px-2 py-1 shadow-lg">
+              <GripVertical className="w-3.5 h-3.5 text-gray-400" />
+              <span className="text-xs text-white">
+                {participantes.find(p => p.id === activeData.participanteId)?.nome}
+              </span>
+            </div>
+          ) : null}
+        </DragOverlay>
+
+      </DndContext>
 
       {times.length > 0 && participantes.length > 0 && (
         <p className="text-xs text-gray-500 mt-4 text-center">
