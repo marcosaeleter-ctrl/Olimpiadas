@@ -87,8 +87,8 @@ function reducer(state, action) {
       return {
         ...state,
         times: state.times.map(t => {
-          if (t.id === deTimeId) return { ...t, participantes: t.participantes.filter(id => id !== participanteId) }
-          if (t.id === paraTimeId) return { ...t, participantes: [...t.participantes, participanteId] }
+          if (deTimeId && t.id === deTimeId) return { ...t, participantes: t.participantes.filter(id => id !== participanteId) }
+          if (paraTimeId && t.id === paraTimeId) return { ...t, participantes: [...t.participantes, participanteId] }
           return t
         }),
       }

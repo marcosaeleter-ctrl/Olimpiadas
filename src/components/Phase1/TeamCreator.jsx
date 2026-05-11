@@ -52,6 +52,9 @@ export default function TeamCreator() {
 
   const nomeParticipante = (id) => participantes.find(p => p.id === id)?.nome || '?'
 
+  const idsNosTimeS = new Set(times.flatMap(t => t.participantes))
+  const semTime = participantes.filter(p => !idsNosTimeS.has(p.id))
+
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white/5 border border-white/10 rounded-2xl p-6">
       <div className="flex items-center justify-between mb-5">
@@ -73,6 +76,35 @@ export default function TeamCreator() {
           </button>
         </div>
       </div>
+
+      {/* Participantes sem time */}
+      {participantes.length > 0 && times.length > 0 && (
+        <div
+          className={`mb-4 rounded-xl border-2 border-dashed p-3 transition-colors ${dragOver === '__pool__' ? 'border-purple-400 bg-purple-500/10' : 'border-white/10'}`}
+          onDragOver={e => { e.preventDefault(); setDragOver('__pool__') }}
+          onDragLeave={() => setDragOver(null)}
+          onDrop={e => handleDrop(e, null)}
+        >
+          <p className="text-xs text-gray-400 font-medium mb-2">Sem time ({semTime.length})</p>
+          {semTime.length === 0 ? (
+            <p className="text-xs text-gray-600 italic">Todos os participantes estão em um time</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {semTime.map(p => (
+                <div
+                  key={p.id}
+                  draggable
+                  onDragStart={e => handleDragStart(e, p.id, null)}
+                  className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1 cursor-grab active:cursor-grabbing"
+                >
+                  <GripVertical className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-xs text-white">{p.nome}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {times.length === 0 && (
         <p className="text-sm text-gray-500 italic text-center py-4">Nenhum time criado. Clique em "+ Time" para adicionar.</p>
@@ -139,7 +171,7 @@ export default function TeamCreator() {
 
       {times.length > 0 && participantes.length > 0 && (
         <p className="text-xs text-gray-500 mt-4 text-center">
-          Arraste participantes entre os times para ajustar manualmente
+          Arraste participantes entre os times ou de volta para "Sem time"
         </p>
       )}
     </motion.div>
